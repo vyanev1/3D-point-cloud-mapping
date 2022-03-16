@@ -206,18 +206,17 @@ int main()
 				point.y *= -1;
 			}
 
-			cout << "[INFO] Applying PassThrough filter..." << endl;
 			applyPassThroughFilter(curr_cloud);
-
 			applyRGBColorFilter(curr_cloud, cloud_color_filtered);
 
 			const pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointXYZRGBNormal>());
 			const pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
 			computeNormals(cloud_color_filtered, normals);
 			concatenateFields(*cloud_color_filtered, *normals, *cloud_with_normals);
+			
+			const pcl::PointXYZRGBNormal nearest_point = getNearestPoint(*cloud_with_normals);
 
 			const pcl::PointCloud<PointT>::Ptr sphere_cloud(new pcl::PointCloud<PointT>(30, 30));
-			const pcl::PointXYZRGBNormal nearest_point = getNearestPoint(*cloud_with_normals);
 			generateSphere(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
 			*cloud_color_filtered += *sphere_cloud;
 
