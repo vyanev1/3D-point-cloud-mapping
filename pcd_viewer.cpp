@@ -1,3 +1,8 @@
+/* ******************************************************************************************************************************************
+ * 3D Point Cloud Mapping Algorithm (2022)																									*
+ * @author https://github.com/vyanev1																										*
+ * ******************************************************************************************************************************************/
+
 #include <thread>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -8,7 +13,7 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/visualization/cloud_viewer.h>
 
-// ----------------------------------------------------------- Global Variables -----------------------------------------------------------
+// ------------------------------------------------------------ Global Variables ------------------------------------------------------------
 
 typedef pcl::PointXYZRGBA PointT;
 
@@ -23,7 +28,7 @@ float high_limit = 1;
 bool changed_limits = false;
 
 
-// ----------------------------------------------------------- Viewer Callbacks -----------------------------------------------------------
+// ------------------------------------------------------------ Viewer Callbacks ------------------------------------------------------------
 
 void viewerOneOff(pcl::visualization::PCLVisualizer& viewer)
 {
@@ -46,7 +51,7 @@ void viewerPsycho(pcl::visualization::PCLVisualizer& viewer)
 }
 
 
-// --------------------------------------------------------------- Filters ----------------------------------------------------------------
+// ---------------------------------------------------------------- Filters -----------------------------------------------------------------
 
 void applyPassThroughFilter(const pcl::PointCloud<PointT>::Ptr& in_cloud)
 {
@@ -74,7 +79,7 @@ void applyRGBColorFilter(const pcl::PointCloud<PointT>::Ptr& cloud, const pcl::P
 }
 
 
-// ---------------------------------------------------------- Normal Estimation -----------------------------------------------------------
+// ----------------------------------------------------------- Normal Estimation ------------------------------------------------------------
 
 void computeNormals(const pcl::PointCloud<PointT>::Ptr& cloud, const pcl::PointCloud<pcl::Normal>::Ptr& normals)
 {
@@ -89,7 +94,7 @@ void computeNormals(const pcl::PointCloud<PointT>::Ptr& cloud, const pcl::PointC
 }
 
 
-// ----------------------------------------------------------- Helper Methods -------------------------------------------------------------
+// ------------------------------------------------------------ Helper Methods --------------------------------------------------------------
 
 void concatenateFields(const pcl::PointCloud<pcl::PointXYZRGBA>& cloud1_in, const pcl::PointCloud<pcl::Normal>& cloud2_in, pcl::PointCloud<pcl::PointXYZRGBNormal>& cloud_out)
 {
@@ -144,7 +149,7 @@ pcl::PointXYZRGBNormal getNearestPoint(pcl::PointCloud<pcl::PointXYZRGBNormal>& 
 }
 
 
-// ---------------------------------------------------------- Sphere Generation -----------------------------------------------------------
+// ----------------------------------------------------------- Sphere Generation ------------------------------------------------------------
 
 void generateSphere(const pcl::PointXYZRGBNormal input_point, const float radius, const char color, const pcl::PointCloud<PointT>::Ptr& sphere_cloud)
 {
