@@ -18,7 +18,6 @@
 typedef pcl::PointXYZRGBA PointT;
 
 pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
-pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
 pcl::PassThrough<PointT> pass;
 
 static constexpr float SPHERE_RADIUS = 0.03f;
@@ -169,9 +168,9 @@ void generateSphere(const pcl::PointXYZRGBNormal input_point, const float radius
 
 			switch (color)
 			{
-				case 'R': sphere_cloud->points[index].r = 255;
-				case 'G': sphere_cloud->points[index].g = 255;
-				case 'B': sphere_cloud->points[index].b = 255;
+				case 'R': sphere_cloud->points[index].r = 255; break;
+				case 'G': sphere_cloud->points[index].g = 255; break;
+				case 'B': sphere_cloud->points[index].b = 255; break;
 				default:;
 			}
 
@@ -183,16 +182,20 @@ void generateSphere(const pcl::PointXYZRGBNormal input_point, const float radius
 
 int main()
 {
+	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> clouds_to_combine;
 	const std::string colors = "RGB";
-	const pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
-	for (int camera_index = 1; camera_index < 2; camera_index++)
+
+	for (int camera_index = 1; camera_index <= 2; camera_index++)
 	{
+		pcl::PointCloud<PointT>::Ptr calibration_cloud(new pcl::PointCloud<PointT>);
+
 		for (int color_index = 0; color_index < colors.size(); color_index++)
 		{
 			// E.g. "camera_1_R.pcd", "camera_1_G.pcd", "camera_1_B.pcd"
 			std::string filename = "camera_" + std::to_string(camera_index) + "_" + colors[color_index] + ".pcd";
 
 			cout << "[INFO] Fetching " << filename << "..." << endl;
+			const pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
 			pcl::io::loadPCDFile(filename, *curr_cloud);
 
 			cout << "[INFO] Removing NaN points..." << endl;
@@ -206,6 +209,7 @@ int main()
 				point.y *= -1;
 			}
 
+			pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
 			applyPassThroughFilter(curr_cloud);
 			applyRGBColorFilter(curr_cloud, cloud_color_filtered);
 
@@ -221,8 +225,10 @@ int main()
 			*cloud_color_filtered += *sphere_cloud;
 
 			cout << "[INFO] Merging " << filename << " to main PointCloud object" << endl;
-			*cloud += *cloud_color_filtered;
+			*calibration_cloud += *cloud_color_filtered;
 		}
+
+		clouds_to_combine.push_back(calibration_cloud);
 	}
 
 	cout << "[INFO] Opening CloudViewer..." << endl;
