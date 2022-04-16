@@ -3,6 +3,7 @@
  * @author https://github.com/vyanev1																										*
  * ******************************************************************************************************************************************/
 
+#include <random>
 #include <thread>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -134,7 +135,6 @@ pcl::PointXYZRGBNormal getNearestPoint(pcl::PointCloud<pcl::PointXYZRGBNormal>& 
 	pcl::PointXYZRGBNormal min_distance_point;
 	for (const auto& point : cloud.points)
 	{
-		cout << "  " << min_distance_point.x << " " << min_distance_point.y << " " << min_distance_point.z << endl;
 		if (point.z > low_limit && point.z < min_distance)
 		{
 			min_distance = point.z;
@@ -150,7 +150,7 @@ pcl::PointXYZRGBNormal getNearestPoint(pcl::PointCloud<pcl::PointXYZRGBNormal>& 
 
 // ----------------------------------------------------------- Sphere Generation ------------------------------------------------------------
 
-void generateSphere(const pcl::PointXYZRGBNormal input_point, const float radius, const char color, const pcl::PointCloud<PointT>::Ptr& sphere_cloud)
+void createSphereSurface(const pcl::PointXYZRGBNormal input_point, const float radius, const char color, const pcl::PointCloud<PointT>::Ptr& sphere_cloud)
 {
 	cout << "[INFO] Drawing sphere..." << endl;
 	int index = 0;
@@ -179,13 +179,58 @@ void generateSphere(const pcl::PointXYZRGBNormal input_point, const float radius
 	}
 }
 
+PointT randomUnitSpherePoint() {
+	PointT point;
+	// cylindrical coordinates
+	const double rxy = sqrt(1 - pow(Eigen::internal::random(0., 1.), (2. / 3.)));
+	const double phi = Eigen::internal::random(0., 2 * M_PI);
+	const double zAbsMax = sqrt(1 - rxy * rxy);
+	point.z = static_cast<float>(Eigen::internal::random(-zAbsMax, zAbsMax));
+	// cartesian coordinates
+	point.x = static_cast<float>(rxy * cos(phi));
+	point.y = static_cast<float>(rxy * sin(phi));
+	return point;
+}
+
+PointT randomSpherePoint(const PointT center, const float r) {
+	PointT point = randomUnitSpherePoint();
+	point.x = center.x + r * point.x;
+	point.y = center.y + r * point.y;
+	point.z = center.z + r * point.z;
+	return point;
+}
+
+void createSphere(const pcl::PointXYZRGBNormal& input_point, float r, std::string::value_type color, const pcl::PointCloud<PointT>::Ptr& sphere)
+{
+	PointT center;
+	center.x = input_point.x - r * input_point.normal_x;
+	center.y = input_point.y - r * input_point.normal_y;
+	center.z = input_point.z - r * input_point.normal_z;
+
+	int index = 0;
+	for (size_t i = 0; i < sphere->width; i++)
+	{
+		for (size_t j = 0; j < sphere->height; j++)
+		{
+			sphere->points[index] = randomSpherePoint(center, r);
+			switch (color)
+			{
+				case 'R': sphere->points[index].r = 255; break;
+				case 'G': sphere->points[index].g = 255; break;
+				case 'B': sphere->points[index].b = 255; break;
+				default:;
+			}
+			index++;
+		}
+	}
+}
 
 int main()
 {
 	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> clouds_to_combine;
 	const std::string colors = "RGB";
 
-	for (int camera_index = 1; camera_index <= 2; camera_index++)
+	for (int camera_index = 1; camera_index < 2; camera_index++)
 	{
 		pcl::PointCloud<PointT>::Ptr calibration_cloud(new pcl::PointCloud<PointT>);
 
@@ -220,12 +265,13 @@ int main()
 			
 			const pcl::PointXYZRGBNormal nearest_point = getNearestPoint(*cloud_with_normals);
 
-			const pcl::PointCloud<PointT>::Ptr sphere_cloud(new pcl::PointCloud<PointT>(30, 30));
-			generateSphere(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
-			*cloud_color_filtered += *sphere_cloud;
+			const pcl::PointCloud<PointT>::Ptr sphere_cloud(new pcl::PointCloud<PointT>(50, 50));
+			createSphere(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
+			//createSphereSurface(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
+			*curr_cloud += *sphere_cloud;
 
 			cout << "[INFO] Merging " << filename << " to main PointCloud object" << endl;
-			*calibration_cloud += *cloud_color_filtered;
+			*calibration_cloud += *curr_cloud;
 		}
 
 		clouds_to_combine.push_back(calibration_cloud);
@@ -233,7 +279,7 @@ int main()
 
 	cout << "[INFO] Opening CloudViewer..." << endl;
 	pcl::visualization::CloudViewer viewer("Cloud Viewer");
-	viewer.showCloud(cloud);
+	viewer.showCloud(clouds_to_combine.at(0));
 	viewer.runOnVisualizationThreadOnce(viewerOneOff); // This will only get called once
 	viewer.runOnVisualizationThread(viewerPsycho);     // This will get called once per visualization iteration
 
