@@ -28,10 +28,15 @@ pcl::console::TicToc time_it;
 
 static constexpr float SPHERE_RADIUS = 0.03f;
 
+pcl::visualization::PCLVisualizer* viewer;
+int vp_1, vp_2; // Viewports
+
 float low_limit = 0.7f;
 float high_limit = 1;
 bool changed_limits = false;
 
+bool next_iteration = false;
+int iterations = 25;
 
 // ------------------------------------------------------------ Viewer Callbacks ------------------------------------------------------------
 
@@ -53,6 +58,39 @@ void viewerPsycho(pcl::visualization::PCLVisualizer& viewer)
 		changed_limits = false;
 	}
 }
+
+void showCloudsLeft(const pcl::PointCloud<PointT>::Ptr& cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source)
+{
+	viewer->addPointCloud(cloud_target, "vp1_target", vp_1);
+	viewer->addPointCloud(cloud_source, "vp1_source", vp_1);
+	viewer->addText("Green: Source point cloud\nRed: Target point cloud", 10, 15, 16, 255, 255, 255, "icp_info_1", vp_1);
+	viewer->spinOnce();
+	std::cout << "Completed Left ViewPort" << std::endl;
+}
+
+void showCloudsRight(const pcl::PointCloud<PointT>::Ptr &cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source)
+{
+	viewer->addPointCloud(cloud_target, "target", vp_2);
+	viewer->addPointCloud(cloud_source, "source", vp_2);
+	viewer->spinOnce();
+}
+
+void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void* nothing)
+{
+	if (event.getKeySym() == "space" && event.keyDown())
+		next_iteration = true;
+}
+
+void print4x4Matrix(const Eigen::Matrix4f& matrix)
+{
+	printf("Rotation matrix :\n");
+	printf("    | %6.3f %6.3f %6.3f | \n", matrix(0, 0), matrix(0, 1), matrix(0, 2));
+	printf("R = | %6.3f %6.3f %6.3f | \n", matrix(1, 0), matrix(1, 1), matrix(1, 2));
+	printf("    | %6.3f %6.3f %6.3f | \n", matrix(2, 0), matrix(2, 1), matrix(2, 2));
+	printf("Translation vector :\n");
+	printf("t = < %6.3f, %6.3f, %6.3f >\n\n", matrix(0, 3), matrix(1, 3), matrix(2, 3));
+}
+
 
 
 // ---------------------------------------------------------------- Filters -----------------------------------------------------------------
@@ -154,17 +192,6 @@ PointType getNearestPoint(pcl::PointCloud<PointType>& cloud)
 	return min_distance_point;
 }
 
-void print4x4Matrix(const Eigen::Matrix4d& matrix)
-{
-	printf("Rotation matrix :\n");
-	printf("    | %6.3f %6.3f %6.3f | \n", matrix(0, 0), matrix(0, 1), matrix(0, 2));
-	printf("R = | %6.3f %6.3f %6.3f | \n", matrix(1, 0), matrix(1, 1), matrix(1, 2));
-	printf("    | %6.3f %6.3f %6.3f | \n", matrix(2, 0), matrix(2, 1), matrix(2, 2));
-	printf("Translation vector :\n");
-	printf("t = < %6.3f, %6.3f, %6.3f >\n\n", matrix(0, 3), matrix(1, 3), matrix(2, 3));
-}
-
-
 // ----------------------------------------------------------- Sphere Generation ------------------------------------------------------------
 
 PointT randomUnitSpherePoint()
@@ -246,41 +273,34 @@ void createSphereSurface(const pcl::PointXYZRGBNormal input_point, const float r
 }
 
 // ----------------------------------------------------------- Initial Guess Estimation -----------------------------------------------------------
-Eigen::Matrix4d estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
+float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 {
 	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
-	Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
-	double theta = 0;  // The angle of rotation in radians
+	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
+	float theta = 0;  // The angle of rotation in radians
 
 	const PointT nearestPoint = getNearestPoint<PointT>(*cloud);
 
-	if (nearestPoint.r == 255) theta = M_PI / 3;		// 60 degrees
-	if (nearestPoint.g == 255) theta = M_PI;			// 180 degrees
-	if (nearestPoint.b == 255) theta = M_PI * 5 / 3;	// 300 degrees
+	if (nearestPoint.r == 255) theta = static_cast<float>(M_PI / 3);		// 60 degrees
+	if (nearestPoint.g == 255) theta = static_cast<float>(M_PI);			// 180 degrees
+	if (nearestPoint.b == 255) theta = static_cast<float>(M_PI * 5 / 3);	// 300 degrees
 
-	transformation_matrix(0, 0) = cos(theta);
-	transformation_matrix(0, 1) = -sin(theta);
-	transformation_matrix(1, 0) = sin(theta);
-	transformation_matrix(1, 1) = cos(theta);
-
-	// A translation on Z axis (0.4 meters)
-	//transformation_matrix(2, 3) = 0.4;
-
-	return transformation_matrix;
+	return theta;
 }
 
-Eigen::Matrix4d estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr source, pcl::PointCloud<PointT>::Ptr target)
+Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr &source, const pcl::PointCloud<PointT>::Ptr &target)
 {
-	Eigen::Matrix4d rotation_matrix_src = estimateRotation(source);
-	Eigen::Matrix4d rotation_matrix_tgt = estimateRotation(target);
+	const float theta_src = estimateRotation(source);
+	const float theta_tgt = estimateRotation(target);
 
-	Eigen::Matrix4d result = Eigen::Matrix4d::Identity();
-	result(0, 0) = rotation_matrix_tgt(0, 0) - rotation_matrix_src(0, 0);
-	result(0, 1) = rotation_matrix_tgt(0, 1) - rotation_matrix_src(0, 1);
-	result(1, 0) = rotation_matrix_tgt(1, 0) - rotation_matrix_src(1, 0);
-	result(1, 1) = rotation_matrix_tgt(1, 1) - rotation_matrix_src(1, 1);
+	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
+	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
+	transformation_matrix(0, 0) = cos(theta_tgt - theta_src);
+	transformation_matrix(0, 1) = sin(theta_tgt - theta_src);
+	transformation_matrix(1, 0) = -sin(theta_tgt - theta_src);
+	transformation_matrix(1, 1) = cos(theta_tgt - theta_src);
 
-	return result;
+	return transformation_matrix;
 }
 
 // ----------------------------------------------------------- Main Function -----------------------------------------------------------
@@ -296,17 +316,19 @@ int main()
 		for (int color_index = 0; color_index < colors.size(); color_index++)
 		{
 			// E.g. "camera_1_R.pcd", "camera_1_G.pcd", "camera_1_B.pcd"
-			std::string filename = "camera_" + std::to_string(camera_index) + "_" + colors[color_index] + ".pcd";
+			std::string filename = "binary_camera_" + std::to_string(camera_index) + "_" + colors[color_index] + ".pcd";
 
 			cout << "[INFO] Fetching " << filename << "..." << endl;
 			const pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
 			pcl::io::loadPCDFile(filename, *curr_cloud);
 
-			cout << "[INFO] Inverting X & Y coordinates..." << endl;
-			for (auto& point : curr_cloud->points)
-			{
-				point.x *= -1;
-				point.y *= -1;
+			if (camera_index == 1) {
+				cout << "[INFO] Inverting X & Y coordinates..." << endl;
+				for (auto& point : curr_cloud->points)
+				{
+					point.x *= -1;
+					point.y *= -1;
+				}
 			}
 
 			pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
@@ -332,48 +354,82 @@ int main()
 	}
 
 	// Initial Guess
-	Eigen::Matrix4d initial_guess = estimateInitialGuess(clouds_to_combine.at(0), clouds_to_combine.at(1));
+	Eigen::Matrix4f initial_guess = estimateInitialGuess(clouds_to_combine.at(0), clouds_to_combine.at(1));
 
 	// The Iterative Closest Point algorithm
-	time_it.tic();
-	pcl::PointCloud<PointT>::Ptr combined_cloud(new pcl::PointCloud<PointT>(*clouds_to_combine.at(1)));
+	const pcl::PointCloud<PointT>::Ptr aligned_cloud(new pcl::PointCloud<PointT>);
+
 	pcl::IterativeClosestPoint<PointT, PointT> icp;
-	icp.setMaximumIterations(50);
 	icp.setInputSource(clouds_to_combine.at(0));
 	icp.setInputTarget(clouds_to_combine.at(1));
-	icp.align(*combined_cloud, initial_guess.cast<float>());
-	std::cout << "Applied " << 50 << " ICP iteration(s) in " << time_it.toc() << " ms" << std::endl;
-
-	icp.setMaximumIterations(1); // We set this variable to 1 for the next time we will call .align() function
+	icp.align(*aligned_cloud, initial_guess);
+	icp.setMaximumIterations(iterations);  // We set this variable to 1 for the next time we will call .align () function
+	std::cout << "Applied " << iterations << " ICP iteration(s) in " << time_it.toc() << " ms" << std::endl;
 
 	if (icp.hasConverged()) {
 		std::cout << "\nICP has converged, score is " << icp.getFitnessScore() << std::endl;
-		std::cout << "\nICP transformation " << 50 << " : cloud_icp -> cloud_in" << std::endl;
-		Eigen::Matrix4d transformation_matrix = icp.getFinalTransformation().cast<double>();
-		print4x4Matrix(transformation_matrix);
+		std::cout << "\nICP transformation " << iterations << " : cloud_icp -> cloud_in" << std::endl;
+		initial_guess = icp.getFinalTransformation();
+		print4x4Matrix(initial_guess);
 	} else {
 		PCL_ERROR("\nICP has not converged.\n");
 		return (-1);
 	}
 
-	cout << "[INFO] Opening CloudViewer..." << endl;
-	pcl::visualization::CloudViewer viewer("Cloud Viewer");
-	viewer.showCloud(combined_cloud);
-	viewer.runOnVisualizationThreadOnce(viewerOneOff); // This will only get called once
-	viewer.runOnVisualizationThread(viewerPsycho);     // This will get called once per visualization iteration
+	// Visualization
+	cout << "[INFO] Opening Cloud Viewer..." << endl;
+	viewer = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
+	viewer->createViewPort(0.0, 0.0, 0.5, 1.0, vp_1);
+	viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_2);
+	showCloudsLeft(clouds_to_combine.at(0), clouds_to_combine.at(1));
+	showCloudsRight(clouds_to_combine.at(1), aligned_cloud);
+	std::stringstream ss;
+	ss << iterations;
+	std::string iterations_cnt = "ICP iterations = " + ss.str();
+	viewer->addText(iterations_cnt, 10, 60, 16, 255, 255, 255, "iterations_cnt", vp_2);
 
-	while (!viewer.wasStopped())
+	// Register space callback and set camera position and window size
+	viewer->registerKeyboardCallback(&keyboardEventOccurred, static_cast<void*>(nullptr));
+	viewer->setCameraPosition(-3.68332, 2.94092, 5.71266, 0.289847, 0.921947, -0.256907, 0);
+	viewer->setSize(1280, 1024); 
+
+	while (!viewer->wasStopped())
 	{
-		if (getchar() != 0)
+		viewer->spinOnce();
+		// The user pressed "space" :
+		if (next_iteration)
 		{
-			low_limit += 0.1f;
-			high_limit += 0.1f;
-			changed_limits = true;
-		}
-	}
+			cout << "[INFO] The user pressed space" << endl;
+			// The Iterative Closest Point algorithm
+			time_it.tic();
+			icp.align(*aligned_cloud);
+			cout << "Applied 1 ICP iteration in " << time_it.toc() << " ms" << std::endl;
 
+			if (icp.hasConverged())
+			{
+				printf("\033[11A");  // Go up 11 lines in terminal output.
+				printf("\nICP has converged, score is %+.0e\n", icp.getFitnessScore());
+				cout << "\nICP transformation " << ++iterations << " : cloud_icp -> cloud_in" << std::endl;
+				initial_guess *= icp.getFinalTransformation();  // WARNING /!\ This is not accurate! For "educational" purpose only!
+				print4x4Matrix(initial_guess);  // Print the transformation between original pose and current pose
+
+				ss.str("");
+				ss << iterations;
+				iterations_cnt = "ICP iterations = " + ss.str();
+				viewer->updateText(iterations_cnt, 10, 60, 16, 255, 255, 255, "iterations_cnt");
+				viewer->updatePointCloud(aligned_cloud, "source");
+			}
+			else
+			{
+				PCL_ERROR("\nICP has not converged.\n");
+				return (-1);
+			}
+		}
+		next_iteration = false;
+	}
 	return 0;
 }
+
 
 //int main()
 //{
