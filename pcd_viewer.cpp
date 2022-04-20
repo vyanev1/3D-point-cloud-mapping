@@ -171,19 +171,21 @@ void concatenateFields(const pcl::PointCloud<pcl::PointXYZRGBA>& cloud1_in, cons
 }
 
 template <typename PointType>
-PointType getNearestPoint(pcl::PointCloud<PointType>& cloud, float exclude_color = -1)
+PointType getNearestPoint(pcl::PointCloud<PointType>& cloud, const Eigen::Vector3i &exclude_color = Eigen::Vector3i(-1, -1, -1))
 {
-	cout << "[INFO] Finding nearest point..." << endl;
+	exclude_color(0) == -1 ? cout << "[INFO] Finding nearest point..." << endl : cout << "[INFO] Finding second nearest point..." << endl;
 
 	float min_distance = FLT_MAX;
 	PointType min_distance_point;
 	for (const auto& point : cloud.points)
 	{
-		if (abs(point.z) < min_distance)
+		const float distance_from_origin = sqrt(point.x * point.x + point.y * point.y + point.z * point.z);
+		if (distance_from_origin < min_distance)
 		{
-			if (point.rgb == exclude_color) continue;
-			min_distance = abs(point.z);
-			min_distance_point = point;
+			if (!exclude_color.isApprox(point.getRGBVector3i())) {
+				min_distance = abs(point.z);
+				min_distance_point = point;
+			}
 		}
 	}
 	cout << "coords:  " << min_distance_point.x << " " << min_distance_point.y << " " << min_distance_point.z << endl;
@@ -275,6 +277,13 @@ void createSphereSurface(const pcl::PointXYZRGBNormal input_point, const float r
 }
 
 // ----------------------------------------------------------- Initial Guess Estimation -----------------------------------------------------------
+double translate(const double value, const double left_min, const double left_max, const double right_min, const double right_max)
+{
+	const double left_span = left_max - left_min;
+	const double right_span = right_max - right_min;
+	const double value_scaled = (value - left_min) / left_span; // Convert the left range into a 0 to 1 range
+	return right_min + value_scaled * right_span;
+}
 
 float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 {
@@ -282,26 +291,40 @@ float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
 
 	const PointT nearest_point = getNearestPoint<PointT>(*cloud);
-	const PointT second_nearest_point = getNearestPoint<PointT>(*cloud, nearest_point.rgb);
-	const float d1 = sqrt(pow(nearest_point.x, 2) + pow(nearest_point.y, 2) + pow(nearest_point.z, 2));
-	const float d2 = sqrt(pow(second_nearest_point.x, 2) + pow(second_nearest_point.y, 2) + pow(second_nearest_point.z, 2));
+	const PointT second_nearest_point = getNearestPoint<PointT>(*cloud, nearest_point.getRGBVector3i());
+	const double d1 = sqrt(pow(nearest_point.x, 2) + pow(nearest_point.y, 2) + pow(nearest_point.z, 2));
+	const double d2 = sqrt(pow(second_nearest_point.x, 2) + pow(second_nearest_point.y, 2) + pow(second_nearest_point.z, 2));
+	const double min_dist = d1;
+	const double max_dist = d1 + 0.1;
+
+	cout << "d1: " << d1 << endl;
+	cout << "d2: " << d2 << endl;
+	cout << "min_dist: " << min_dist << endl;
+	cout << "max_dist: " << max_dist << endl;
 
 	float theta = 0; // The angle of rotation in radians
 
 	if (nearest_point.r == 255) {
 		cout << "[INFO] Nearest point is red." << endl;
-		theta = second_nearest_point.b == 255 ? (d2 / d1) * static_cast<float>(M_PI / 3) : -(d2 / d1) * static_cast<float>(M_PI / 3);
-	}
-	if (nearest_point.g == 255) {
-		cout << "[INFO] Nearest point is green." << endl;
-		theta = second_nearest_point.r == 255 ? (d2 / d1) * static_cast<float>(M_PI * 5 / 3) : -(d2 / d1) * static_cast<float>(M_PI * 5 / 3);
+		theta = second_nearest_point.b == 255
+			? - static_cast<float>(translate(d2, min_dist, max_dist, - M_PI / 3, 0))
+			: static_cast<float>(translate(d2, min_dist, max_dist, 5 * M_PI / 3, 2 * M_PI));
 	}
 	if (nearest_point.b == 255) {
 		cout << "[INFO] Nearest point is blue." << endl;
-		theta = second_nearest_point.g == 255 ? (d2 / d1) * static_cast<float>(M_PI) : -(d2 / d1) * static_cast<float>(M_PI);
+		theta = second_nearest_point.g == 255
+			? - static_cast<float>(translate(d2, min_dist, max_dist, - M_PI, - 4 * M_PI / 3))
+			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI / 3, 2 * M_PI / 3));
+	}
+	if (nearest_point.g == 255) {
+		cout << "[INFO] Nearest point is green." << endl;
+		theta = second_nearest_point.r == 255
+			? - static_cast<float>(translate(d2, min_dist, max_dist, - (5 * M_PI / 3), - 4 * M_PI / 3))
+			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI, 4 * M_PI / 3));
 	}
 
-	cout << "[INFO] Estimated angle: " << (theta * 180 / M_PI) << " degrees" << endl;
+	cout << "[INFO] Second nearest point is " << (second_nearest_point.r == 255 ? "red." : second_nearest_point.g == 255 ? "green." : "blue.") << endl;
+	cout << "[INFO] Estimated angle: " << theta * 180 / M_PI << " degrees" << endl;
 	return theta;
 }
 
@@ -311,14 +334,14 @@ Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr &source,
 	const float theta_src = estimateRotation(source);
 	const float theta_tgt = estimateRotation(target);
 
-	cout << "Difference in degrees: " << theta_tgt - theta_src << endl;
+	cout << "Difference in degrees: " << (theta_tgt - theta_src) * 180 / M_PI << endl;
 
 	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
 	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
 	transformation_matrix(0, 0) = std::cos(theta_tgt - theta_src);
-	transformation_matrix(0, 1) = std::sin(theta_tgt - theta_src);
-	transformation_matrix(1, 0) = -std::sin(theta_tgt - theta_src);
-	transformation_matrix(1, 1) = std::cos(theta_tgt - theta_src);
+	transformation_matrix(0, 2) = std::sin(theta_tgt - theta_src);
+	transformation_matrix(2, 0) = -std::sin(theta_tgt - theta_src);
+	transformation_matrix(2, 2) = std::cos(theta_tgt - theta_src);
 
 	return transformation_matrix;
 }
@@ -372,17 +395,20 @@ int main()
 		clouds_debug.push_back(camera_cloud);
 	}
 
-	// Initial Guess
+	// Estimate initial guess
 	Eigen::Matrix4f transformation_matrix = estimateInitialGuess(clouds_to_combine.at(0), clouds_to_combine.at(1));
 
-	// The Iterative Closest Point algorithm
-	const pcl::PointCloud<PointT>::Ptr aligned_cloud(new pcl::PointCloud<PointT>(*clouds_to_combine.at(0)));
+	// Apply initial guess
+	cout << "[INFO] Applying initial guess..." << endl;
+	const pcl::PointCloud<PointT>::Ptr aligned_cloud(new pcl::PointCloud<PointT>);
+	transformPointCloud(*clouds_to_combine.at(0), *aligned_cloud, transformation_matrix);
 
+	// Iterative Closest Point algorithm
 	pcl::IterativeClosestPoint<PointT, PointT> icp;
-	icp.setMaximumIterations(1);
-	icp.setInputSource(clouds_to_combine.at(0));
+	icp.setMaximumIterations(75);
+	icp.setInputSource(aligned_cloud);
 	icp.setInputTarget(clouds_to_combine.at(1));
-	icp.align(*aligned_cloud, transformation_matrix);
+	icp.align(*aligned_cloud);
 	std::cout << "Applied " << iterations << " ICP iteration(s) in " << time_it.toc() << " ms" << std::endl;
 
 	if (icp.hasConverged()) {
@@ -401,7 +427,7 @@ int main()
 	viewer->createViewPort(0.0, 0.0, 0.5, 0.5, vp_1);
 	viewer->createViewPort(0.0, 0.5, 0.5, 1, vp_2);
 	viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_3);
-	showCloudsLeft(clouds_debug.at(0), clouds_debug.at(1));
+	showCloudsLeft(clouds_to_combine.at(0), clouds_to_combine.at(1));
 	showCloudsRight(clouds_to_combine.at(1), aligned_cloud);
 	std::stringstream ss;
 	ss << iterations;
