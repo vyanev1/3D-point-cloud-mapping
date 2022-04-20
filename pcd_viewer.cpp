@@ -36,7 +36,7 @@ float high_limit = 1;
 bool changed_limits = false;
 
 bool next_iteration = false;
-int iterations = 25;
+int iterations = 75;
 
 // ------------------------------------------------------------ Viewer Callbacks ------------------------------------------------------------
 
@@ -349,8 +349,8 @@ Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr &source,
 // ----------------------------------------------------------- Main Function -----------------------------------------------------------
 int main()
 {
-	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> clouds_debug;
-	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> clouds_to_combine;
+	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> camera_clouds;
+	std::vector<pcl::PointCloud<PointT>::Ptr, Eigen::aligned_allocator <pcl::PointCloud<PointT>::Ptr>> calibration_clouds;
 	const std::string colors = "RGB";
 
 	for (int camera_index = 1; camera_index <= 2; camera_index++)
@@ -365,12 +365,12 @@ int main()
 			cout << "[INFO] Fetching " << filename << "..." << endl;
 			pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
 			pcl::io::loadPCDFile(filename, *curr_cloud);
-
 			cout << "[INFO] Inverting Y coordinates..." << endl;
 			for (auto& point : curr_cloud->points)
 			{
 				point.y *= -1;
 			}
+			*camera_cloud += *curr_cloud;
 
 			pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
 			applyPassThroughFilter(curr_cloud);
@@ -380,43 +380,42 @@ int main()
 			const pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
 			computeNormals(cloud_color_filtered, normals);
 			concatenateFields(*cloud_color_filtered, *normals, *cloud_with_normals);
-			
+
 			const pcl::PointXYZRGBNormal nearest_point = getNearestPoint<pcl::PointXYZRGBNormal>(*cloud_with_normals);
 			const pcl::PointCloud<PointT>::Ptr sphere_cloud(new pcl::PointCloud<PointT>(50, 50));
 			createSphere(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
-			*curr_cloud += *sphere_cloud;
-			*camera_cloud += *curr_cloud;
 
 			cout << "[INFO] Adding " << filename << " to PointCloud object of current camera." << endl;
 			*calibration_cloud += *sphere_cloud;
 		}
 		cout << "[INFO] Adding pre-processed view of camera " << camera_index << " to list of clouds to align." << endl;
-		clouds_to_combine.push_back(calibration_cloud);
-		clouds_debug.push_back(camera_cloud);
+		calibration_clouds.push_back(calibration_cloud);
+		camera_clouds.push_back(camera_cloud);
 	}
 
 	// Estimate initial guess
-	Eigen::Matrix4f transformation_matrix = estimateInitialGuess(clouds_to_combine.at(0), clouds_to_combine.at(1));
+	Eigen::Matrix4f transformation_matrix = estimateInitialGuess(calibration_clouds.at(0), calibration_clouds.at(1));
 
 	// Apply initial guess
 	cout << "[INFO] Applying initial guess..." << endl;
 	const pcl::PointCloud<PointT>::Ptr aligned_cloud(new pcl::PointCloud<PointT>);
-	transformPointCloud(*clouds_to_combine.at(0), *aligned_cloud, transformation_matrix);
+	transformPointCloud(*calibration_clouds.at(0), *aligned_cloud, transformation_matrix);
 
 	// Iterative Closest Point algorithm
+	cout << "[INFO] Running Iterative Closest Point (ICP) algorithm..." << endl;
 	pcl::IterativeClosestPoint<PointT, PointT> icp;
-	icp.setMaximumIterations(75);
+	icp.setMaximumIterations(iterations);
 	icp.setInputSource(aligned_cloud);
-	icp.setInputTarget(clouds_to_combine.at(1));
+	icp.setInputTarget(calibration_clouds.at(1));
 	icp.align(*aligned_cloud);
 	std::cout << "Applied " << iterations << " ICP iteration(s) in " << time_it.toc() << " ms" << std::endl;
 
 	if (icp.hasConverged()) {
 		std::cout << "\nICP has converged, score is " << icp.getFitnessScore() << std::endl;
 		std::cout << "\nICP transformation " << iterations << " : cloud_icp -> cloud_in" << std::endl;
-		transformation_matrix = icp.getFinalTransformation();
-		print4x4Matrix(transformation_matrix);
-	} else {
+		print4x4Matrix(icp.getFinalTransformation());
+	}
+	else {
 		PCL_ERROR("\nICP has not converged.\n");
 		return (-1);
 	}
@@ -427,17 +426,13 @@ int main()
 	viewer->createViewPort(0.0, 0.0, 0.5, 0.5, vp_1);
 	viewer->createViewPort(0.0, 0.5, 0.5, 1, vp_2);
 	viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_3);
-	showCloudsLeft(clouds_to_combine.at(0), clouds_to_combine.at(1));
-	showCloudsRight(clouds_to_combine.at(1), aligned_cloud);
-	std::stringstream ss;
-	ss << iterations;
-	std::string iterations_cnt = "ICP iterations = " + ss.str();
-	viewer->addText(iterations_cnt, 10, 60, 16, 255, 255, 255, "iterations_cnt", vp_3);
+	showCloudsLeft(calibration_clouds.at(0), calibration_clouds.at(1));
+	showCloudsRight(calibration_clouds.at(1), aligned_cloud);
 
 	// Register space callback and set camera position and window size
 	viewer->registerKeyboardCallback(&keyboardEventOccurred);
 	viewer->initCameraParameters();
-	viewer->setSize(1280, 1024); 
+	viewer->setSize(1280, 1024);
 
 	while (!viewer->wasStopped())
 	{
@@ -448,21 +443,16 @@ int main()
 			cout << "[INFO] The user pressed space" << endl;
 			// The Iterative Closest Point algorithm
 			time_it.tic();
+			icp.setMaximumIterations(1);
 			icp.align(*aligned_cloud);
 			cout << "Applied 1 ICP iteration in " << time_it.toc() << " ms" << std::endl;
 
 			if (icp.hasConverged())
 			{
-				printf("\033[11A");  // Go up 11 lines in terminal output.
 				printf("\nICP has converged, score is %+.0e\n", icp.getFitnessScore());
 				cout << "\nICP transformation " << ++iterations << " : cloud_icp -> cloud_in" << std::endl;
 				transformation_matrix *= icp.getFinalTransformation();  // WARNING /!\ This is not accurate! For "educational" purpose only!
 				print4x4Matrix(transformation_matrix);  // Print the transformation between original pose and current pose
-
-				ss.str("");
-				ss << iterations;
-				iterations_cnt = "ICP iterations = " + ss.str();
-				viewer->updateText(iterations_cnt, 10, 60, 16, 255, 255, 255, "iterations_cnt");
 				viewer->updatePointCloud(aligned_cloud, "source");
 			}
 			else
@@ -473,6 +463,21 @@ int main()
 		}
 		next_iteration = false;
 	}
+
+	// Align original clouds using estimated initial guess transformation matrix
+	//pcl::PointCloud<PointT>::Ptr aligned_original_cloud(new pcl::PointCloud<PointT>);
+	//transformPointCloud(*camera_clouds.at(0), *aligned_original_cloud, transformation_matrix);
+
+	//cout << "[INFO] Applying final transformation matrix to original clouds..." << endl;
+	//transformPointCloud(*aligned_original_cloud, *aligned_original_cloud, icp.getFinalTransformation());
+	//*aligned_original_cloud += *camera_clouds.at(1);
+	//pcl::visualization::CloudViewer cloud_viewer("Original clouds aligned");
+	//cloud_viewer.showCloud(aligned_original_cloud);
+
+	//while (!cloud_viewer.wasStopped())
+	//{
+	//}
+
 	return 0;
 }
 
