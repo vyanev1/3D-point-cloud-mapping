@@ -287,9 +287,6 @@ double translate(const double value, const double left_min, const double left_ma
 
 float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 {
-	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
-	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
-
 	const PointT nearest_point = getNearestPoint<PointT>(*cloud);
 	const PointT second_nearest_point = getNearestPoint<PointT>(*cloud, nearest_point.getRGBVector3i());
 	const double d1 = sqrt(pow(nearest_point.x, 2) + pow(nearest_point.y, 2) + pow(nearest_point.z, 2));
