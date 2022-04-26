@@ -18,69 +18,68 @@
 #include <pcl/registration/icp.h>
 #include <pcl/visualization/cloud_viewer.h>
 
-// ------------------------------------------------------------ Global Variables ------------------------------------------------------------
+
+ // ------------------------------------------------------------ Global Variables ------------------------------------------------------------
 
 typedef pcl::PointXYZRGBA PointT;
 
-pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
-pcl::PassThrough<PointT> pass;
-pcl::console::TicToc time_it;
+pcl::PointCloud<PointT>::Ptr		cloud(new pcl::PointCloud<PointT>);
+pcl::PassThrough<PointT>			pass;
+pcl::console::TicToc				time_it;
 
-static constexpr float SPHERE_RADIUS = 0.03f;
-
-pcl::visualization::PCLVisualizer* viewer;
-int vp_1, vp_2, vp_3; // Viewports
+static constexpr float				SPHERE_RADIUS = 0.03f;
 
 float low_limit = 0.7f;
 float high_limit = 1;
 bool changed_limits = false;
-
 bool next_iteration = false;
-int iterations = 75;
 
-// ------------------------------------------------------------ Viewer Callbacks ------------------------------------------------------------
-
-void viewerOneOff(pcl::visualization::PCLVisualizer& viewer)
+class CloudVisualizer
 {
-	viewer.initCameraParameters();
-}
+	int vp_1, vp_2, vp_3; // Viewports
+	pcl::visualization::PCLVisualizer* viewer;
 
-void viewerPsycho(pcl::visualization::PCLVisualizer& viewer)
-{
-	//std::stringstream ss;
-	//ss << "Low limit: " << low_limit << "; High limit: " << high_limit;
-	//viewer.removeShape("text", 0);
-	//viewer.addText(ss.str(), 200, 300, "text", 0);
-	if (changed_limits) {
-		pass.setFilterLimits(low_limit, high_limit);
-		pass.filter(*cloud);
-		viewer.updatePointCloud(cloud);
-		changed_limits = false;
+public:
+	CloudVisualizer(const std::string& name) : viewer(new pcl::visualization::PCLVisualizer(name))
+	{
+		viewer->createViewPort(0.0, 0.0, 0.5, 0.5, vp_1);
+		viewer->createViewPort(0.0, 0.5, 0.5, 1, vp_2);
+		viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_3);
+		viewer->registerKeyboardCallback(&keyboardEventOccurred);
+		viewer->initCameraParameters();
+		viewer->setSize(1280, 1024);
 	}
-}
 
-void showCloudsLeft(const pcl::PointCloud<PointT>::Ptr& cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source)
-{
-	viewer->addPointCloud(cloud_target, "vp1_target", vp_1);
-	viewer->addPointCloud(cloud_source, "vp1_source", vp_2);
-	viewer->addText("Target point cloud", 10, 15, 16, 255, 255, 255, "icp_info_1", vp_1);
-	viewer->addText("Source point cloud", 10, 15, 16, 255, 255, 255, "icp_info_2", vp_2);
-	viewer->spinOnce();
-	std::cout << "Completed Left ViewPort" << std::endl;
-}
+	bool wasStopped() const { return viewer->wasStopped(); }
 
-void showCloudsRight(const pcl::PointCloud<PointT>::Ptr &cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source)
-{
-	viewer->addPointCloud(cloud_target, "target", vp_3);
-	viewer->addPointCloud(cloud_source, "source", vp_3);
-	viewer->spinOnce();
-}
+	void spinOnce() const { return viewer->spinOnce(); }
 
-void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void* nothing)
-{
-	if (event.getKeySym() == "space" && event.keyDown())
-		next_iteration = true;
-}
+	void showCloudsLeft(const pcl::PointCloud<PointT>::Ptr& cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source) const
+	{
+		viewer->addPointCloud(cloud_target, "vp1_target", vp_1);
+		viewer->addPointCloud(cloud_source, "vp1_source", vp_2);
+		std::cout << "Completed Left ViewPort" << std::endl;
+	}
+
+	void showCloudsRight(const pcl::PointCloud<PointT>::Ptr& cloud_target, const pcl::PointCloud<PointT>::Ptr& cloud_source) const
+	{
+		if (viewer->contains("target"))
+			viewer->updatePointCloud(cloud_target, "target");
+		else
+			viewer->addPointCloud(cloud_target, "target", vp_3);
+
+		if (viewer->contains("source"))
+			viewer->updatePointCloud(cloud_source, "source");
+		else
+			viewer->addPointCloud(cloud_source, "source", vp_3);
+	}
+
+	static void keyboardEventOccurred(const pcl::visualization::KeyboardEvent& event, void* nothing)
+	{
+		if (event.getKeySym() == "space" && event.keyDown())
+			next_iteration = true;
+	}
+};
 
 void print4x4Matrix(const Eigen::Matrix4f& matrix)
 {
@@ -92,6 +91,11 @@ void print4x4Matrix(const Eigen::Matrix4f& matrix)
 	printf("t = < %6.3f, %6.3f, %6.3f >\n\n", matrix(0, 3), matrix(1, 3), matrix(2, 3));
 }
 
+void viewerOneOff(pcl::visualization::PCLVisualizer& viewer)
+{
+	viewer.initCameraParameters();
+	viewer.setCameraFieldOfView(0.65);
+}
 
 
 // ---------------------------------------------------------------- Filters -----------------------------------------------------------------
@@ -146,7 +150,6 @@ void concatenateFields(const pcl::PointCloud<pcl::PointXYZRGBA>& cloud1_in, cons
 		PCL_ERROR("[pcl::concatenateFields] The number of points in the two input datasets differs!\n");
 		return;
 	}
-
 	// Resize the output dataset
 	cloud_out.points.resize(cloud1_in.points.size());
 	cloud_out.header = cloud1_in.header;
@@ -156,7 +159,6 @@ void concatenateFields(const pcl::PointCloud<pcl::PointXYZRGBA>& cloud1_in, cons
 		cloud_out.is_dense = false;
 	else
 		cloud_out.is_dense = true;
-
 	// Iterate over each point
 	for (size_t i = 0; i < cloud_out.points.size(); ++i)
 	{
@@ -171,10 +173,9 @@ void concatenateFields(const pcl::PointCloud<pcl::PointXYZRGBA>& cloud1_in, cons
 }
 
 template <typename PointType>
-PointType getNearestPoint(pcl::PointCloud<PointType>& cloud, const Eigen::Vector3i &exclude_color = Eigen::Vector3i(-1, -1, -1))
+PointType getNearestPoint(pcl::PointCloud<PointType>& cloud, const Eigen::Vector3i& exclude_color = Eigen::Vector3i(-1, -1, -1))
 {
 	exclude_color(0) == -1 ? cout << "[INFO] Finding nearest point..." << endl : cout << "[INFO] Finding second nearest point..." << endl;
-
 	float min_distance = FLT_MAX;
 	PointType min_distance_point;
 	for (const auto& point : cloud.points)
@@ -189,12 +190,11 @@ PointType getNearestPoint(pcl::PointCloud<PointType>& cloud, const Eigen::Vector
 		}
 	}
 	cout << "coords:  " << min_distance_point.x << " " << min_distance_point.y << " " << min_distance_point.z << endl;
-
 	if constexpr (std::is_same_v<PointType, pcl::PointXYZRGBNormal>)
 		cout << "normals: " << min_distance_point.normal_x << " " << min_distance_point.normal_y << " " << min_distance_point.normal_z << endl;
-
 	return min_distance_point;
 }
+
 
 // ----------------------------------------------------------- Sphere Generation ------------------------------------------------------------
 
@@ -205,8 +205,8 @@ PointT randomUnitSpherePoint()
 	const double rxy = sqrt(1 - pow(Eigen::internal::random(0., 1.), (2. / 3.)));
 	const double phi = Eigen::internal::random(0., 2 * M_PI);
 	const double zAbsMax = sqrt(1 - rxy * rxy);
-	point.z = static_cast<float>(Eigen::internal::random(-zAbsMax, zAbsMax));
 	// cartesian coordinates
+	point.z = static_cast<float>(Eigen::internal::random(-zAbsMax, zAbsMax));
 	point.x = static_cast<float>(rxy * cos(phi));
 	point.y = static_cast<float>(rxy * sin(phi));
 	return point;
@@ -237,10 +237,10 @@ void createSphere(const pcl::PointXYZRGBNormal& input_point, float r, std::strin
 			sphere->points[index] = randomSpherePoint(center, r);
 			switch (color)
 			{
-				case 'R': sphere->points[index].r = 255; break;
-				case 'G': sphere->points[index].g = 255; break;
-				case 'B': sphere->points[index].b = 255; break;
-				default:;
+			case 'R': sphere->points[index].r = 255; break;
+			case 'G': sphere->points[index].g = 255; break;
+			case 'B': sphere->points[index].b = 255; break;
+			default:;
 			}
 			index++;
 		}
@@ -276,6 +276,7 @@ void createSphereSurface(const pcl::PointXYZRGBNormal input_point, const float r
 	}
 }
 
+
 // ----------------------------------------------------------- Initial Guess Estimation -----------------------------------------------------------
 double translate(const double value, const double left_min, const double left_max, const double right_min, const double right_max)
 {
@@ -304,19 +305,19 @@ float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 	if (nearest_point.r == 255) {
 		cout << "[INFO] Nearest point is red." << endl;
 		theta = second_nearest_point.b == 255
-			? - static_cast<float>(translate(d2, min_dist, max_dist, - M_PI / 3, 0))
+			? -static_cast<float>(translate(d2, min_dist, max_dist, -M_PI / 3, 0))
 			: static_cast<float>(translate(d2, min_dist, max_dist, 5 * M_PI / 3, 2 * M_PI));
 	}
 	if (nearest_point.b == 255) {
 		cout << "[INFO] Nearest point is blue." << endl;
 		theta = second_nearest_point.g == 255
-			? - static_cast<float>(translate(d2, min_dist, max_dist, - M_PI, - 4 * M_PI / 3))
+			? -static_cast<float>(translate(d2, min_dist, max_dist, -M_PI, -4 * M_PI / 3))
 			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI / 3, 2 * M_PI / 3));
 	}
 	if (nearest_point.g == 255) {
 		cout << "[INFO] Nearest point is green." << endl;
 		theta = second_nearest_point.r == 255
-			? - static_cast<float>(translate(d2, min_dist, max_dist, - (5 * M_PI / 3), - 4 * M_PI / 3))
+			? -static_cast<float>(translate(d2, min_dist, max_dist, -(5 * M_PI / 3), -4 * M_PI / 3))
 			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI, 4 * M_PI / 3));
 	}
 
@@ -325,7 +326,7 @@ float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 	return theta;
 }
 
-Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr &source, const pcl::PointCloud<PointT>::Ptr &target)
+Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr& source, const pcl::PointCloud<PointT>::Ptr& target)
 {
 	cout << "[INFO] Estimating initial guess" << endl;
 	const float theta_src = estimateRotation(source);
@@ -333,15 +334,33 @@ Eigen::Matrix4f estimateInitialGuess(const pcl::PointCloud<PointT>::Ptr &source,
 
 	cout << "Difference in degrees: " << (theta_tgt - theta_src) * 180 / M_PI << endl;
 
-	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
-	Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
-	transformation_matrix(0, 0) = std::cos(theta_tgt - theta_src);
-	transformation_matrix(0, 2) = std::sin(theta_tgt - theta_src);
-	transformation_matrix(2, 0) = -std::sin(theta_tgt - theta_src);
-	transformation_matrix(2, 2) = std::cos(theta_tgt - theta_src);
+	// Translate to center of cloud
+	PointT source_center;
+	pcl::CentroidPoint<PointT> centroid;
+	for (auto& point : source->points)
+		centroid.add(point);
+	centroid.get(source_center);
 
-	return transformation_matrix;
+	Eigen::Matrix4f translate = Eigen::Matrix4f::Identity();
+	translate(0, 3) = source_center.x;
+	translate(1, 3) = source_center.y;
+	translate(2, 3) = source_center.z;
+
+	// A rotation matrix (see https://en.wikipedia.org/wiki/Rotation_matrix)
+	Eigen::Matrix4f rotate = Eigen::Matrix4f::Identity();
+	rotate(0, 0) = std::cos(theta_tgt - theta_src);
+	rotate(0, 2) = std::sin(theta_tgt - theta_src);
+	rotate(2, 0) = -std::sin(theta_tgt - theta_src);
+	rotate(2, 2) = std::cos(theta_tgt - theta_src);
+
+	Eigen::Matrix4f reverse_translate = Eigen::Matrix4f::Identity();
+	reverse_translate(0, 3) = -source_center.x;
+	reverse_translate(1, 3) = -source_center.y;
+	reverse_translate(2, 3) = -source_center.z;
+
+	return translate * rotate * reverse_translate;
 }
+
 
 // ----------------------------------------------------------- Main Function -----------------------------------------------------------
 int main()
@@ -353,21 +372,24 @@ int main()
 	for (int camera_index = 1; camera_index <= 2; camera_index++)
 	{
 		pcl::PointCloud<PointT>::Ptr calibration_cloud(new pcl::PointCloud<PointT>);
-		pcl::PointCloud<PointT>::Ptr camera_cloud(new pcl::PointCloud<PointT>);
-
-		for (int color_index = 0; color_index < colors.size(); color_index++)
+		for (char color : colors)
 		{
 			// E.g. "camera_1_R.pcd", "camera_1_G.pcd", "camera_1_B.pcd"
-			std::string filename = "binary_camera_" + std::to_string(camera_index) + "_" + colors[color_index] + ".pcd";
+			std::string filename = "camera_" + std::to_string(camera_index) + "_" + color + ".pcd";
 			cout << "[INFO] Fetching " << filename << "..." << endl;
 			pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
 			pcl::io::loadPCDFile(filename, *curr_cloud);
-			cout << "[INFO] Inverting Y coordinates..." << endl;
+			cout << "[INFO] Inverting X & Y coordinates..." << endl;
 			for (auto& point : curr_cloud->points)
 			{
 				point.y *= -1;
 			}
-			*camera_cloud += *curr_cloud;
+			//			cout << "[INFO] Removing outliers..." << endl;
+			//			pcl::StatisticalOutlierRemoval<PointT> sor;
+			//			sor.setInputCloud(curr_cloud);
+			//			sor.setMeanK(50);
+			//			sor.setStddevMulThresh(1.0);
+			//			sor.filter(*curr_cloud);
 
 			pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
 			applyPassThroughFilter(curr_cloud);
@@ -380,13 +402,22 @@ int main()
 
 			const pcl::PointXYZRGBNormal nearest_point = getNearestPoint<pcl::PointXYZRGBNormal>(*cloud_with_normals);
 			const pcl::PointCloud<PointT>::Ptr sphere_cloud(new pcl::PointCloud<PointT>(50, 50));
-			createSphere(nearest_point, SPHERE_RADIUS, colors[color_index], sphere_cloud);
+			createSphere(nearest_point, SPHERE_RADIUS, color, sphere_cloud);
 
 			cout << "[INFO] Adding " << filename << " to PointCloud object of current camera." << endl;
 			*calibration_cloud += *sphere_cloud;
 		}
 		cout << "[INFO] Adding pre-processed view of camera " << camera_index << " to list of clouds to align." << endl;
 		calibration_clouds.push_back(calibration_cloud);
+
+		pcl::PointCloud<PointT>::Ptr camera_cloud(new pcl::PointCloud<PointT>);
+		std::string filename = "camera_" + std::to_string(camera_index) + "_test.pcd";
+		cout << "[INFO] Fetching " << filename << "..." << endl;
+		pcl::io::loadPCDFile(filename, *camera_cloud);
+		for (auto& point : camera_cloud->points)
+		{
+			point.y *= -1;
+		}
 		camera_clouds.push_back(camera_cloud);
 	}
 
@@ -394,22 +425,24 @@ int main()
 	Eigen::Matrix4f transformation_matrix = estimateInitialGuess(calibration_clouds.at(0), calibration_clouds.at(1));
 
 	// Apply initial guess
-	cout << "[INFO] Applying initial guess..." << endl;
 	const pcl::PointCloud<PointT>::Ptr aligned_cloud(new pcl::PointCloud<PointT>);
+	cout << "[INFO] Applying initial guess..." << endl;
 	transformPointCloud(*calibration_clouds.at(0), *aligned_cloud, transformation_matrix);
 
 	// Iterative Closest Point algorithm
 	cout << "[INFO] Running Iterative Closest Point (ICP) algorithm..." << endl;
+	int icp_iterations = 50;
 	pcl::IterativeClosestPoint<PointT, PointT> icp;
-	icp.setMaximumIterations(iterations);
+	icp.setMaximumIterations(icp_iterations);
 	icp.setInputSource(aligned_cloud);
 	icp.setInputTarget(calibration_clouds.at(1));
 	icp.align(*aligned_cloud);
-	std::cout << "Applied " << iterations << " ICP iteration(s) in " << time_it.toc() << " ms" << std::endl;
+	cout << "Applied " << icp_iterations << " ICP iteration(s) in " << time_it.toc() << " ms" << endl;
+
 
 	if (icp.hasConverged()) {
-		std::cout << "\nICP has converged, score is " << icp.getFitnessScore() << std::endl;
-		std::cout << "\nICP transformation " << iterations << " : cloud_icp -> cloud_in" << std::endl;
+		cout << "\nICP has converged, score is " << icp.getFitnessScore() << endl;
+		cout << "\nICP transformation " << icp_iterations << " : cloud_icp -> cloud_in" << endl;
 		print4x4Matrix(icp.getFinalTransformation());
 	}
 	else {
@@ -418,95 +451,50 @@ int main()
 	}
 
 	// Visualization
-	cout << "[INFO] Opening Cloud Viewer..." << endl;
-	viewer = new pcl::visualization::PCLVisualizer("Pairwise Incremental Registration example");
-	viewer->createViewPort(0.0, 0.0, 0.5, 0.5, vp_1);
-	viewer->createViewPort(0.0, 0.5, 0.5, 1, vp_2);
-	viewer->createViewPort(0.5, 0.0, 1.0, 1.0, vp_3);
-	showCloudsLeft(calibration_clouds.at(0), calibration_clouds.at(1));
-	showCloudsRight(calibration_clouds.at(1), aligned_cloud);
-
-	// Register space callback and set camera position and window size
-	viewer->registerKeyboardCallback(&keyboardEventOccurred);
-	viewer->initCameraParameters();
-	viewer->setSize(1280, 1024);
-
-	while (!viewer->wasStopped())
-	{
-		viewer->spinOnce();
-		// The user pressed "space" :
-		if (next_iteration)
-		{
-			cout << "[INFO] The user pressed space" << endl;
-			// The Iterative Closest Point algorithm
-			time_it.tic();
-			icp.setMaximumIterations(1);
-			icp.align(*aligned_cloud);
-			cout << "Applied 1 ICP iteration in " << time_it.toc() << " ms" << std::endl;
-
-			if (icp.hasConverged())
-			{
-				printf("\nICP has converged, score is %+.0e\n", icp.getFitnessScore());
-				cout << "\nICP transformation " << ++iterations << " : cloud_icp -> cloud_in" << std::endl;
-				transformation_matrix *= icp.getFinalTransformation();  // WARNING /!\ This is not accurate! For "educational" purpose only!
-				print4x4Matrix(transformation_matrix);  // Print the transformation between original pose and current pose
-				viewer->updatePointCloud(aligned_cloud, "source");
-			}
-			else
-			{
-				PCL_ERROR("\nICP has not converged.\n");
-				return (-1);
-			}
-		}
-		next_iteration = false;
-	}
+	//cout << "[INFO] Opening Cloud Viewer..." << endl;
+	//CloudVisualizer viewer("Pairwise Incremental Registration example");
+	//viewer.showCloudsLeft(calibration_clouds.at(0), calibration_clouds.at(1));
+	//viewer.showCloudsRight(calibration_clouds.at(1), aligned_cloud);
+	//while (!viewer.wasStopped())
+	//{
+	//	viewer.spinOnce();
+	//	// The user pressed "space" :
+	//	if (next_iteration)
+	//	{
+	//		cout << "[INFO] The user pressed space" << endl;
+	//		// The Iterative Closest Point algorithm
+	//		time_it.tic();
+	//		icp.align(*aligned_cloud);
+	//		cout << "Applied 1 ICP iteration in " << time_it.toc() << " ms" << endl;
+	//		if (icp.hasConverged())
+	//		{
+	//			printf("\nICP has converged, score is %+.0e\n", icp.getFitnessScore());
+	//			cout << "\nICP transformation " << ++icp_iterations << " : cloud_icp -> cloud_in" << endl;
+	//			transformation_matrix *= icp.getFinalTransformation();  // WARNING /!\ This is not accurate! For "educational" purpose only!
+	//			print4x4Matrix(transformation_matrix * icp.getFinalTransformation());  // Print the transformation between original pose and current pose
+	//			viewer.showCloudsRight(calibration_clouds.at(1), aligned_cloud);
+	//		}
+	//		else
+	//		{
+	//			PCL_ERROR("\nICP has not converged.\n");
+	//			return (-1);
+	//		}
+	//	}
+	//	next_iteration = false;
+	//}
 
 	// Align original clouds using estimated initial guess transformation matrix
-	//pcl::PointCloud<PointT>::Ptr aligned_original_cloud(new pcl::PointCloud<PointT>);
-	//transformPointCloud(*camera_clouds.at(0), *aligned_original_cloud, transformation_matrix);
-
-	//cout << "[INFO] Applying final transformation matrix to original clouds..." << endl;
-	//transformPointCloud(*aligned_original_cloud, *aligned_original_cloud, icp.getFinalTransformation());
-	//*aligned_original_cloud += *camera_clouds.at(1);
-	//pcl::visualization::CloudViewer cloud_viewer("Original clouds aligned");
-	//cloud_viewer.showCloud(aligned_original_cloud);
-
-	//while (!cloud_viewer.wasStopped())
-	//{
-	//}
+	pcl::PointCloud<PointT>::Ptr aligned_source_cloud(new pcl::PointCloud<PointT>);
+	transformPointCloud(*camera_clouds.at(0), *aligned_source_cloud, transformation_matrix);
+	cout << "[INFO] Applying final transformation matrix to original clouds..." << endl;
+	transformPointCloud(*aligned_source_cloud, *aligned_source_cloud, icp.getFinalTransformation());
+	*aligned_source_cloud += *camera_clouds.at(1);
+	pcl::visualization::CloudViewer cloud_viewer("Original clouds aligned");
+	cloud_viewer.showCloud(aligned_source_cloud);
+	cloud_viewer.runOnVisualizationThreadOnce(viewerOneOff);
+	while (!cloud_viewer.wasStopped())
+	{
+	}
 
 	return 0;
 }
-
-
-//int main()
-//{
-//	const std::string colors = "RGB";
-//	for (int camera_index = 1; camera_index <= 2; camera_index++)
-//	{
-//		for (int color_index = 0; color_index < colors.size(); color_index++)
-//		{
-//			// E.g. "camera_1_R.pcd", "camera_1_G.pcd", "camera_1_B.pcd"
-//			std::string filename = "camera_" + std::to_string(camera_index) + "_" + colors[color_index] + ".pcd";
-//
-//			cout << "[INFO] Fetching " << filename << "..." << endl;
-//			const pcl::PointCloud<PointT>::Ptr curr_cloud(new pcl::PointCloud<PointT>);
-//			pcl::io::loadPCDFile(filename, *curr_cloud);
-//
-//			cout << "[INFO] Removing NaN points..." << endl;
-//			std::vector<int> indices;
-//			removeNaNFromPointCloud(*curr_cloud, *curr_cloud, indices);
-//
-//			cout << "[INFO] Removing outliers..." << endl;
-//			pcl::StatisticalOutlierRemoval<PointT> sor;
-//			sor.setInputCloud(curr_cloud);
-//			sor.setMeanK(50);
-//			sor.setStddevMulThresh(1.0);
-//			sor.filter(*curr_cloud);
-//
-//			cout << "[INFO] Saving " << filename << " file of current camera." << endl;
-//			pcl::io::savePCDFile(filename, *curr_cloud);
-//		}
-//	}
-//	return 0;
-//}
