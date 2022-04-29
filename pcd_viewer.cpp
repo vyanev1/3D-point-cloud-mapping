@@ -311,7 +311,7 @@ float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 	if (nearest_point.b == 255) {
 		cout << "[INFO] Nearest point is blue." << endl;
 		theta = second_nearest_point.g == 255
-			? -static_cast<float>(translate(d2, min_dist, max_dist, -M_PI, -4 * M_PI / 3))
+			? -static_cast<float>(translate(d2, min_dist, max_dist, -M_PI, -2 * M_PI / 3))
 			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI / 3, 2 * M_PI / 3));
 	}
 	if (nearest_point.g == 255) {
