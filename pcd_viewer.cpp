@@ -317,7 +317,7 @@ float estimateRotation(const pcl::PointCloud<PointT>::Ptr& cloud)
 	if (nearest_point.g == 255) {
 		cout << "[INFO] Nearest point is green." << endl;
 		theta = second_nearest_point.r == 255
-			? -static_cast<float>(translate(d2, min_dist, max_dist, -(5 * M_PI / 3), -4 * M_PI / 3))
+			? -static_cast<float>(translate(d2, min_dist, max_dist, -5 * M_PI / 3, -4 * M_PI / 3))
 			: static_cast<float>(translate(d2, min_dist, max_dist, M_PI, 4 * M_PI / 3));
 	}
 
@@ -384,12 +384,12 @@ int main()
 			{
 				point.y *= -1;
 			}
-			//			cout << "[INFO] Removing outliers..." << endl;
-			//			pcl::StatisticalOutlierRemoval<PointT> sor;
-			//			sor.setInputCloud(curr_cloud);
-			//			sor.setMeanK(50);
-			//			sor.setStddevMulThresh(1.0);
-			//			sor.filter(*curr_cloud);
+			//cout << "[INFO] Removing outliers..." << endl;
+			//pcl::StatisticalOutlierRemoval<PointT> sor;
+			//sor.setInputCloud(curr_cloud);
+			//sor.setMeanK(50);
+			//sor.setStddevMulThresh(1.0);
+			//sor.filter(*curr_cloud);
 
 			pcl::PointCloud<PointT>::Ptr cloud_color_filtered(new pcl::PointCloud<PointT>);
 			applyPassThroughFilter(curr_cloud);
@@ -450,7 +450,7 @@ int main()
 		return (-1);
 	}
 
-	// Visualization
+	// Visualization used for interactive ICP (Debugging)
 	//cout << "[INFO] Opening Cloud Viewer..." << endl;
 	//CloudVisualizer viewer("Pairwise Incremental Registration example");
 	//viewer.showCloudsLeft(calibration_clouds.at(0), calibration_clouds.at(1));
@@ -486,9 +486,13 @@ int main()
 	// Align original clouds using estimated initial guess transformation matrix
 	pcl::PointCloud<PointT>::Ptr aligned_source_cloud(new pcl::PointCloud<PointT>);
 	transformPointCloud(*camera_clouds.at(0), *aligned_source_cloud, transformation_matrix);
+
+	// Apply final transformation matrix obtained from ICP to original clouds and merge the two clouds
 	cout << "[INFO] Applying final transformation matrix to original clouds..." << endl;
 	transformPointCloud(*aligned_source_cloud, *aligned_source_cloud, icp.getFinalTransformation());
 	*aligned_source_cloud += *camera_clouds.at(1);
+
+	// Visualize the result
 	pcl::visualization::CloudViewer cloud_viewer("Original clouds aligned");
 	cloud_viewer.showCloud(aligned_source_cloud);
 	cloud_viewer.runOnVisualizationThreadOnce(viewerOneOff);
